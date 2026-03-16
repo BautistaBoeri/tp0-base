@@ -42,7 +42,8 @@ class Server:
         try:
             bet = protocol.recv_bet(client_sock)
             
-            utils.store_bet(bet.first_name, bet.last_name, bet.document, bet.birthdate, bet.number)
+            bet_to_store = utils.Bet("1", bet.first_name, bet.last_name, bet.document, bet.birthdate, bet.number)
+            utils.store_bets([bet_to_store])
             
             logging.info(f'action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}')
             

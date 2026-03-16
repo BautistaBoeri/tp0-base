@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -114,16 +115,10 @@ func main() {
 
 	client := common.NewClient(clientConfig)
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	defer stop()
 
-	done := make(chan bool, 1)
+	log.Infof("action: startup | result: success | client_id: %s", v.GetString("id"))
 
-	go func() {
-		<-sig
-		log.Infof("action: shutdown | result: success | client_id: %s", v.GetString("id"))
-		done <- true
-	}()
-
-	client.StartClientLoop(done)
+	client.StartClientLoop(ctx)
 }

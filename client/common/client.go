@@ -2,6 +2,7 @@ package common
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"time"
@@ -51,7 +52,7 @@ func (c *Client) createClientSocket() error {
 }
 
 // StartClientLoop Send messages to the client until some time threshold is met
-func (c *Client) StartClientLoop(done chan bool) {
+func (c *Client) StartClientLoop(ctx context.Context) {
 	// There is an autoincremental msgID to identify every message sent
 	// Messages if the message amount threshold has not been surpassed
 	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
@@ -84,7 +85,7 @@ func (c *Client) StartClientLoop(done chan bool) {
 
 		// Wait for the loop period before sending the next message or finish the loop
 		select {
-		case <-done:
+		case <-ctx.Done():
 			log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 			return
 		case <-time.After(c.config.LoopPeriod):

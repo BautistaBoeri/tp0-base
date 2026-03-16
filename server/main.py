@@ -51,10 +51,7 @@ def main():
     # Initialize server and start server loop
     server = Server(port, listen_backlog)
 
-    def sigterm_handler(sig, frame):
-        server.stop()
-
-    signal.signal(signal.SIGTERM, sigterm_handler)
+    signal.signal(signal.SIGTERM, lambda sig, frame: server.stop())
 
     server.run()
 

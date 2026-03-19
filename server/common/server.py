@@ -40,17 +40,22 @@ class Server:
         client socket will also be closed
         """
         try:
-            bet = protocol.recv_bet(client_sock)
+            batch = protocol.recv_bet_batch(client_sock)
             
-            bet_to_store = utils.Bet("1", bet.first_name, bet.last_name, bet.document, bet.birthdate, bet.number)
-            utils.store_bets([bet_to_store])
+            bets_to_store = []
+            for bet in batch:
+                bet_to_store = utils.Bet("1", bet.first_name, bet.last_name, bet.document, bet.birthdate, bet.number)
+                bets_to_store.append(bet_to_store)
             
-            logging.info(f'action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}')
+            utils.store_bets(bets_to_store)
             
+            logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(batch)}')
             protocol.send_ack(client_sock)
 
-        except OSError as e:
-            logging.error(f"action: receive_message | result: fail | error: {e}")
+        except protocol.BetFormatError as e:
+            logging.error(f'action: apuesta_recibida | result: fail | cantidad: {e.batch_size}')
+            protocol.send_error(client_sock)
+
         except Exception as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")
         finally:

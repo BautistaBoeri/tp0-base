@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/op/go-logging"
@@ -55,38 +56,45 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 	}
 	defer file.Close()
 
+	err = c.createClientSocket()
+	if err != nil {
+		return
+	}
+	defer c.conn.Close()
+
+	agencyID, err := strconv.ParseUint(c.config.ID, 10, 8)
+	if err != nil {
+		log.Criticalf("action: parse_agency_id | result: fail | error: %v", err)
+		return
+	}
+
 	csvReader := csv.NewReader(file)
 	betReader := NewBetReader(csvReader)
 
+	// Loop: enviar todos los batches por el mismo socket
 	for {
+		select {
+		case <-ctx.Done():
+			log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+			return
+		default:
+		}
+
 		batch, errRead := betReader.ReadBatch(c.config.BatchAmount)
 
-		// Si no hay más apuestas para leer, salimos  (Finalizó todo el archivo)
+		// Si no hay más apuestas para leer, terminamos el loop
 		if len(batch) == 0 && errRead == io.EOF {
 			break
 		}
 
-		err := c.createClientSocket()
-		if err != nil {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(c.config.LoopPeriod):
-				continue
-			}
-		}
-
 		// Enviar batch entero
-		err = SendBetBatch(c.conn, batch)
+		err = SendBetBatch(c.conn, uint8(agencyID), batch)
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			c.conn.Close()
 			return
 		}
 
 		_, err = ReceiveAckMessage(c.conn)
-		c.conn.Close()
-
 		if err != nil {
 			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
 			return
@@ -101,5 +109,20 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 		case <-time.After(c.config.LoopPeriod):
 		}
 	}
-	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+
+	// Notificar al servidor que terminamos
+	err = SendDone(c.conn, uint8(agencyID))
+	if err != nil {
+		log.Errorf("action: send_done | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+
+	// Esperar la lista de ganadores
+	winners, err := ReceiveWinners(c.conn)
+	if err != nil {
+		log.Errorf("action: consulta_ganadores | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+
+	log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", len(winners))
 }

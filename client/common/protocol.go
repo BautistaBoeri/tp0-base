@@ -9,6 +9,8 @@ import (
 const SEND_BET_OP = 1
 const ACK_OP = 2
 const SEND_BATCH_OP = 3
+const DONE_OP = 4
+const WINNERS_OP = 5
 const ERROR_OP = 9
 
 // sendAll asegura que se envíen todos los bytes sin short-writes
@@ -52,12 +54,12 @@ func SerializeBet(bet Bet) []byte {
 }
 
 // SendBetBatch envía un lote (batch) de apuestas en un solo paquete.
-// Protocolo: [1 byte: SEND_BATCH_OP] + [2 bytes: Cantidad N] + [N Apuestas serializadas]
-func SendBetBatch(conn net.Conn, batch []Bet) error {
-
-	header := make([]byte, 3)
+// Protocolo: [1 byte: SEND_BATCH_OP] + [1 byte: agency_id] + [2 bytes: Cantidad N] + [N Apuestas serializadas]
+func SendBetBatch(conn net.Conn, agencyID uint8, batch []Bet) error {
+	header := make([]byte, 4)
 	header[0] = SEND_BATCH_OP
-	binary.BigEndian.PutUint16(header[1:], uint16(len(batch)))
+	header[1] = agencyID
+	binary.BigEndian.PutUint16(header[2:], uint16(len(batch)))
 
 	var payload []byte
 	for _, bet := range batch {
@@ -67,6 +69,44 @@ func SendBetBatch(conn net.Conn, batch []Bet) error {
 
 	packet := append(header, payload...)
 	return sendAll(conn, packet)
+}
+
+// SendDone notifica al servidor que esta agencia terminó de enviar apuestas.
+// Protocolo: [1 byte: DONE_OP] + [1 byte: agency_id] + [2 bytes: 0 (unused)]
+func SendDone(conn net.Conn, agencyID uint8) error {
+	header := make([]byte, 4)
+	header[0] = DONE_OP
+	header[1] = agencyID
+	binary.BigEndian.PutUint16(header[2:], 0)
+	return sendAll(conn, header)
+}
+
+// ReceiveWinners lee la lista de DNI ganadores enviada por el servidor.
+// Protocolo: [1 byte: WINNERS_OP] + [2 bytes: cantidad] + [por cada DNI: 2 bytes largo + bytes DNI]
+func ReceiveWinners(conn net.Conn) ([]string, error) {
+	header, err := receiveAll(conn, 3)
+	if err != nil {
+		return nil, err
+	}
+	if header[0] != WINNERS_OP {
+		return nil, fmt.Errorf("expected WINNERS_OP, got %d", header[0])
+	}
+	count := int(binary.BigEndian.Uint16(header[1:]))
+
+	winners := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		lenBytes, err := receiveAll(conn, 2)
+		if err != nil {
+			return nil, err
+		}
+		dniLen := int(binary.BigEndian.Uint16(lenBytes))
+		dniBytes, err := receiveAll(conn, dniLen)
+		if err != nil {
+			return nil, err
+		}
+		winners = append(winners, string(dniBytes))
+	}
+	return winners, nil
 }
 
 // ReceiveAckMessage espera la respuesta del server

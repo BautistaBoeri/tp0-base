@@ -13,7 +13,7 @@ def main():
         print("La cantidad de clientes debe ser un número entero.")
         sys.exit(1)
 
-    yaml_header = """name: tp0
+    yaml_header = f"""name: tp0
 services:
   server:
     container_name: server
@@ -21,6 +21,7 @@ services:
     entrypoint: python3 /main.py
     environment:
       - PYTHONUNBUFFERED=1
+      - AGENCIES={num_clients}
     networks:
       - testing_net
     volumes:
@@ -42,7 +43,7 @@ services:
       - server
     volumes:
       - ./client/config.yaml:/config.yaml
-      - ./.data/agency{i}.csv:/dataset.csv
+      - ./.data/agency-{i}.csv:/dataset.csv
 """
 
     yaml_footer = """

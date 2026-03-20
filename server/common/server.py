@@ -1,5 +1,6 @@
 import socket
 import logging
+import threading
 from common import protocol
 from common import utils
 
@@ -12,6 +13,7 @@ class Server:
         self._server_socket.listen(listen_backlog)
         self._is_running = True
         self._agencies = agencies
+        self._store_lock = threading.Lock()
 
     def stop(self):
         logging.info('action: stop_server | result: in_progress')
@@ -26,28 +28,32 @@ class Server:
         Phase 2: Once all agencies sent DONE, perform the sorteo.
         Phase 3: Send each agency its winners and close sockets.
         """
-        # List of (client_sock, agency_id) tuples
         pending_clients = []
+        threads = []
+        clientes_aceptados = 0
 
-        # Phase 1: receive bets from all agencies
-        while self._is_running and len(pending_clients) < self._agencies:
+        # Phase 1: receive bets from all agencies concurrently
+        while self._is_running and clientes_aceptados < self._agencies:
             client_sock = self.__accept_new_connection()
             if client_sock is None:
                 continue
-            agency_id = self.__handle_bets(client_sock)
-            if agency_id is not None:
-                pending_clients.append((client_sock, agency_id))
+
+            t = threading.Thread(target=self.__receive_worker, args=(client_sock, pending_clients))
+            t.start()
+            threads.append(t)
+            clientes_aceptados += 1
 
         if not self._is_running:
             for sock, _ in pending_clients:
                 sock.close()
             return
 
-        # Phase 2: sorteo
+        for t in threads:
+            t.join()
+
         logging.info('action: sorteo | result: success')
         all_bets = list(utils.load_bets())
 
-        # Phase 3: send winners to each agency
         for client_sock, agency_id in pending_clients:
             try:
                 winners = [
@@ -60,6 +66,15 @@ class Server:
                 logging.error(f"action: send_winners | result: fail | agency: {agency_id} | error: {e}")
             finally:
                 client_sock.close()
+
+    def __receive_worker(self, client_sock, pending_clients):
+        """
+        Worker thread function to handle receiving bets from a single client.
+        It calls __handle_bets and appends the result to the shared list.
+        """
+        agency = self.__handle_bets(client_sock)
+        if agency is not None:
+            pending_clients.append((client_sock, agency))
 
     def __handle_bets(self, client_sock):
         """
@@ -74,7 +89,6 @@ class Server:
                 agency_id = msg_agency_id
 
                 if msg_type == 'done':
-                    # Client finished sending bets
                     return agency_id
 
                 if msg_type == 'batch':
@@ -89,7 +103,8 @@ class Server:
                         )
                         for bet in batch
                     ]
-                    utils.store_bets(bets_to_store)
+                    with self._store_lock:
+                        utils.store_bets(bets_to_store)
                     logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(batch)}')
                     protocol.send_ack(client_sock)
 

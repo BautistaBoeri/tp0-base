@@ -14,6 +14,7 @@ class Server:
         self._is_running = True
         self._agencies = agencies
         self._store_lock = threading.Lock()
+        self._pending_clients_lock = threading.Lock()
 
     def stop(self):
         logging.info('action: stop_server | result: in_progress')
@@ -74,7 +75,8 @@ class Server:
         """
         agency = self.__handle_bets(client_sock)
         if agency is not None:
-            pending_clients.append((client_sock, agency))
+            with self._pending_clients_lock:
+                pending_clients.append((client_sock, agency))
 
     def __handle_bets(self, client_sock):
         """

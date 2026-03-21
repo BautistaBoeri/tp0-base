@@ -89,12 +89,12 @@ class Server:
                 client_sock.close()
 
             elif msg_type == 'done':
-                finished_agencies.add(str(agency_id))
+                finished_agencies.add(agency_id)
                 protocol.send_ack(client_sock)
                 client_sock.close()
 
             elif msg_type == 'request_winners':
-                pending_clients.append((client_sock, str(agency_id)))
+                pending_clients.append((client_sock, agency_id))
 
         except protocol.BetFormatError as e:
             logging.error(f'action: apuesta_recibida | result: fail | cantidad: {e.batch_size}')

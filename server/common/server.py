@@ -21,19 +21,16 @@ class Server:
 
     def run(self):
         """
-        Phase 1: Accept connections, read one message.
-        Phase 2: Once all agencies sent DONE and requested winners, perform the sorteo.
-        Phase 3: Send each agency its winners and close sockets.
+        Phase 1: Accept connections, receive batches and DONE messages.
+        Phase 2: Once all agencies sent DONE, perform the sorteo.
+        Phase 3: Answer any pending REQUEST_WINNERS and wait for remaining REQUEST_WINNERS.
         """
-        # List of (client_sock, agency_id) tuples
         pending_clients = []
         finished_agencies = set()
+        served_agencies = set()
 
-        # Phase 1: receive bets and wait for all agencies
-        while self._is_running:
-            if len(finished_agencies) == self._agencies and len(pending_clients) == self._agencies:
-                break
-
+        # Phase 1: receive bets and wait for all agencies to send DONE
+        while self._is_running and len(finished_agencies) < self._agencies:
             client_sock = self.__accept_new_connection()
             if client_sock is None:
                 continue
@@ -49,19 +46,50 @@ class Server:
         logging.info('action: sorteo | result: success')
         all_bets = list(utils.load_bets())
 
-        # Phase 3: send winners to each agency
-        for client_sock, agency_id in pending_clients:
-            try:
-                winners = [
-                    bet.document
-                    for bet in all_bets
-                    if bet.agency == agency_id and utils.has_won(bet)
-                ]
-                protocol.send_winners(client_sock, winners)
-            except Exception as e:
-                logging.error(f"action: send_winners | result: fail | agency: {agency_id} | error: {e}")
-            finally:
+        # Send to those who already requested winners
+        for sock, agency_id in pending_clients:
+            self.__send_winners_to_agency(sock, agency_id, all_bets, served_agencies)
+            
+        pending_clients.clear()
+
+        # Phase 3: Wait for those who haven't requested winners yet
+        while self._is_running and len(served_agencies) < self._agencies:
+            client_sock = self.__accept_new_connection()
+            if client_sock is None:
+                continue
+
+            self.__handle_request_winners_connection(client_sock, all_bets, served_agencies)
+
+    def __handle_request_winners_connection(self, client_sock, all_bets, served_agencies):
+        """
+        Reads exactly one message from the socket, verifies it is a request_winners
+        message, and sends the winners to the agency.
+        """
+        try:
+            msg_type, agency_id, _ = protocol.recv_message(client_sock)
+            if msg_type == 'request_winners':
+                self.__send_winners_to_agency(client_sock, agency_id, all_bets, served_agencies)
+            else:
+                # Should not occur, close connection
+                protocol.send_error(client_sock)
                 client_sock.close()
+        except Exception as e:
+            logging.error(f"action: receive_message | result: fail | error: {e}")
+            client_sock.close()
+
+    def __send_winners_to_agency(self, sock, agency_id, all_bets, served_agencies):
+        try:
+            winners = [
+                bet.document
+                for bet in all_bets
+                if bet.agency == agency_id and utils.has_won(bet)
+            ]
+            protocol.send_winners(sock, winners)
+        except Exception as e:
+            logging.error(f"action: send_winners | result: fail | agency: {agency_id} | error: {e}")
+        finally:
+            sock.close()
+            served_agencies.add(agency_id)
 
     def __handle_client_connection(self, client_sock, pending_clients, finished_agencies):
         """

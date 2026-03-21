@@ -179,3 +179,25 @@ Se proveen [pruebas automáticas](https://github.com/7574-sistemas-distribuidos/
 
 El incumplimiento de las pruebas es condición de desaprobación, pero su cumplimiento no es suficiente para la aprobación.  Se pide a los alumnos leer atentamente y **tener en cuenta** los criterios de corrección informados  [en el campus](https://campusgrado.fi.uba.ar/mod/page/view.php?id=73393).
 Respetar el formato y contenido las entradas de logs descritas en los ejercicios, pues son las que se chequean en cada uno de los tests.
+## Resolucion EJ1
+
+Se hizo un script de python llamado `generar-compose.py` que recibe por parámetro el nombre del archivo de salida y la cantidad de clientes esperados, y genera un archivo de docker compose con la cantidad de clientes solicitada. El script se encuentra en la raíz del proyecto y se puede ejecutar con el comando `./generar-compose.sh docker-compose-dev.yaml 5`.
+
+Se utilizo el docker compose incluido en el repositorio como plantilla para generar el nuevo archivo de docker compose y se agrega la posibilidad de tener mas clientes.
+
+Para generar un nuevo compose ejecutar lo siguiente comando:
+
+`./generar-compose.sh <archivo_salida> <cantidad_clientes>`
+
+Una vez hecho esto, se puede iniciar el proyecto con el comando `make docker-compose-up` y luego ver los logs con `make docker-compose-logs`. Se debería ver que se han iniciado 5 clientes y el servidor, y que cada cliente se conecta al servidor y envía mensajes de forma incremental.
+
+Para detener el proyecto, se puede ejecutar el comando `make docker-compose-down`, lo cual detendrá los containers y eliminará los recursos asociados al proyecto.
+
+# Resolucion EJ2
+
+Se modifico el script que genera el docker compose para que se creen volúmenes para cada cliente y para el servidor, y se monten los archivos de configuración correspondientes en cada container. De esta forma, los cambios realizados en los archivos de configuración serán efectivos sin necesidad de reconstruir las imágenes de Docker. 
+
+Ademas se eliminio el nivel del log que tenian configurado para que utilizaran los de los archivos de configuracion.
+
+Para ejecutar esto, se puede seguir el mismo procedimiento que en el ejercicio anterior.
+

@@ -7,6 +7,7 @@ OPCODE_ACK = 2
 OPCODE_BATCH = 3
 OPCODE_DONE = 4
 OPCODE_WINNERS = 5
+OPCODE_REQUEST_WINNERS = 6
 OPCODE_ERROR = 9
 
 class BetFormatError(ValueError):
@@ -29,6 +30,7 @@ def recv_message(sock: socket.socket):
     Returns:
       ('batch', agency_id, list[Bet])  if it's a BATCH message
       ('done', agency_id, None)        if it's a DONE message
+      ('request_winners', agency_id, None) if it's a REQUEST_WINNERS message
     Raises ValueError on unknown opcode.
     """
     # Header: opcode (1 byte) + agency_id (1 byte) + count/unused (2 bytes)
@@ -37,6 +39,9 @@ def recv_message(sock: socket.socket):
 
     if opcode == OPCODE_DONE:
         return ('done', agency_id, None)
+
+    if opcode == OPCODE_REQUEST_WINNERS:
+        return ('request_winners', agency_id, None)
 
     if opcode == OPCODE_BATCH:
         batch = []

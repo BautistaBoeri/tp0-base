@@ -117,6 +117,13 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 		return
 	}
 
+	// Solicitar ganadores
+	err = SendRequestWinners(c.conn, uint8(agencyID))
+	if err != nil {
+		log.Errorf("action: request_winners | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+
 	// Esperar la lista de ganadores
 	winners, err := ReceiveWinners(c.conn)
 	if err != nil {

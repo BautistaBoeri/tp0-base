@@ -11,6 +11,7 @@ const ACK_OP = 2
 const SEND_BATCH_OP = 3
 const DONE_OP = 4
 const WINNERS_OP = 5
+const REQUEST_WINNERS_OP = 6
 const ERROR_OP = 9
 
 // sendAll asegura que se envíen todos los bytes sin short-writes
@@ -76,6 +77,16 @@ func SendBetBatch(conn net.Conn, agencyID uint8, batch []Bet) error {
 func SendDone(conn net.Conn, agencyID uint8) error {
 	header := make([]byte, 4)
 	header[0] = DONE_OP
+	header[1] = agencyID
+	binary.BigEndian.PutUint16(header[2:], 0)
+	return sendAll(conn, header)
+}
+
+// SendRequestWinners solicita los ganadores de forma bloqueante hasta que estén disponibles.
+// Protocolo: [1 byte: REQUEST_WINNERS_OP] + [1 byte: agency_id] + [2 bytes: 0 (unused)]
+func SendRequestWinners(conn net.Conn, agencyID uint8) error {
+	header := make([]byte, 4)
+	header[0] = REQUEST_WINNERS_OP
 	header[1] = agencyID
 	binary.BigEndian.PutUint16(header[2:], 0)
 	return sendAll(conn, header)

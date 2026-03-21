@@ -21,22 +21,24 @@ class Server:
 
     def run(self):
         """
-
-        Phase 1: Accept all agencies, receive their bets, keep sockets open.
-        Phase 2: Once all agencies sent DONE, perform the sorteo.
+        Phase 1: Accept connections, read one message.
+        Phase 2: Once all agencies sent DONE and requested winners, perform the sorteo.
         Phase 3: Send each agency its winners and close sockets.
         """
         # List of (client_sock, agency_id) tuples
         pending_clients = []
+        finished_agencies = set()
 
-        # Phase 1: receive bets from all agencies
-        while self._is_running and len(pending_clients) < self._agencies:
+        # Phase 1: receive bets and wait for all agencies
+        while self._is_running:
+            if len(finished_agencies) == self._agencies and len(pending_clients) == self._agencies:
+                break
+
             client_sock = self.__accept_new_connection()
             if client_sock is None:
                 continue
-            agency_id = self.__handle_bets(client_sock)
-            if agency_id is not None:
-                pending_clients.append((client_sock, agency_id))
+
+            self.__handle_client_connection(client_sock, pending_clients, finished_agencies)
 
         if not self._is_running:
             for sock, _ in pending_clients:
@@ -61,46 +63,47 @@ class Server:
             finally:
                 client_sock.close()
 
-    def __handle_bets(self, client_sock):
+    def __handle_client_connection(self, client_sock, pending_clients, finished_agencies):
         """
-        Receives all bet batches from a client until a DONE message arrives.
-        Stores bets with the correct agency_id.
-        Returns the agency_id of the client, or None on error.
+        Reads exactly one message from the socket, processes it, and closes the socket
+        unless it's a request_winners message, in which case it keeps it open.
         """
-        agency_id = None
         try:
-            while True:
-                msg_type, msg_agency_id, batch = protocol.recv_message(client_sock)
-                agency_id = msg_agency_id
+            msg_type, agency_id, payload = protocol.recv_message(client_sock)
 
-                if msg_type == 'done':
-                    # Client finished sending bets
-                    return agency_id
+            if msg_type == 'batch':
+                bets_to_store = [
+                    utils.Bet(
+                        str(agency_id),
+                        bet.first_name,
+                        bet.last_name,
+                        bet.document,
+                        bet.birthdate,
+                        bet.number
+                    )
+                    for bet in payload
+                ]
+                utils.store_bets(bets_to_store)
+                logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(payload)}')
+                protocol.send_ack(client_sock)
+                client_sock.close()
 
-                if msg_type == 'batch':
-                    bets_to_store = [
-                        utils.Bet(
-                            str(agency_id),
-                            bet.first_name,
-                            bet.last_name,
-                            bet.document,
-                            bet.birthdate,
-                            bet.number
-                        )
-                        for bet in batch
-                    ]
-                    utils.store_bets(bets_to_store)
-                    logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(batch)}')
-                    protocol.send_ack(client_sock)
+            elif msg_type == 'done':
+                finished_agencies.add(str(agency_id))
+                protocol.send_ack(client_sock)
+                client_sock.close()
+
+            elif msg_type == 'request_winners':
+                pending_clients.append((client_sock, str(agency_id)))
 
         except protocol.BetFormatError as e:
             logging.error(f'action: apuesta_recibida | result: fail | cantidad: {e.batch_size}')
             protocol.send_error(client_sock)
-            return None
+            client_sock.close()
 
         except Exception as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")
-            return None
+            client_sock.close()
 
     def __accept_new_connection(self):
         """

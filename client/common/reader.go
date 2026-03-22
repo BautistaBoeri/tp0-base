@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	MaxBatchSizeBytes = 8096
+	MAXBATCHSIZEBYTES = 8096
 )
 
 // BetReader es un wrapper sobre csv.Reader que mantiene el estado
@@ -60,7 +60,7 @@ func (br *BetReader) ReadBatch(maxAmount int) ([]Bet, error) {
 			betSize := 2 + len(bet.FirstName) + len(bet.LastName) + len(bet.Document) + len(bet.Birthdate) + len(bet.Number) + 4
 
 			// Si al sumar esta apuesta nos pasamos de seguridad (~8KB), la guardamos en la instancia para el PRÓXIMO batch
-			if currentBatchSize+betSize > MaxBatchSizeBytes {
+			if currentBatchSize+betSize > MAXBATCHSIZEBYTES {
 				br.leftoverBet = &bet
 				// Retornamos nil porque no hay error, el único motivo de corte es que el batch está lleno
 				return batch, nil

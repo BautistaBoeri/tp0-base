@@ -262,3 +262,22 @@ Para soportar el envío por batches, el protocolo ahora funciona de la siguiente
 
 3. **Respuestas (ACK/ERROR):**
    El servidor responde comprobando que todas se hayan procesado con un mensaje compuesto de **5 bytes de header** (OpCode + Largo de respuesta) y su respectivo mensaje (`"OK"` u `"ERROR"`).
+
+# Resolucion EJ7
+
+En esta etapa se implementó un mecanismo de **sincronización y consulta** para que el servidor sepa cuándo terminaron de enviarse todas las apuestas, pueda realizar el sorteo y notifique a las agencias si tuvieron ganadores. 
+
+Para lograrlo, se incorporaron las siguientes modificaciones:
+
+1. **Ampliación del Protocolo:**
+   - **`SEND_BATCH_OP` (3):** Ahora incluye también el identificador de la agencia (`agency_id`) de 1 byte en el header.
+   - **`DONE_OP` (4):** Mensaje que envía la agencia al terminar de leer su archivo, indicando que no tiene más apuestas.
+   - **`REQUEST_WINNERS_OP` (6):** Mensaje que envía la agencia para quedarse a la espera de los resultados.
+   - **`WINNERS_OP` (5):** Respuesta del servidor que contiene en su *payload* los DNI ganadores correspondientes a esa agencia.
+
+2. **Sincronización en el Servidor:**
+   El servidor divide su ejecución en fases. Primero, recibe *batchs* y registra qué agencias van enviando el aviso de terminación (`DONE_OP`). Solo cuando recibe el aviso de *todas* las agencias esperadas (cantidad configurada mediante variable de entorno del compose), rompe el bucle de recepción y ejecuta de forma segura el sorteo de Lotería Nacional, para luego responder a las conexiones en espera (`REQUEST_WINNERS_OP`).
+
+3. **Ciclo de vida del Cliente:**
+   Tras enviar todos sus lotes de apuestas y agotar el archivo de origen, el cliente abre una conexión para notificar al servidor (`DONE_OP`). Por último, solicita los ganadores (`REQUEST_WINNERS_OP`) usando una conexión que se quedará bloqueada (en espera) hasta que el servidor haya comprobado que todas las agencias terminaron y esté listo para devolver los resultados.
+

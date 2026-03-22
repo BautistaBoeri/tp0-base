@@ -179,3 +179,66 @@ Se proveen [pruebas automáticas](https://github.com/7574-sistemas-distribuidos/
 
 El incumplimiento de las pruebas es condición de desaprobación, pero su cumplimiento no es suficiente para la aprobación.  Se pide a los alumnos leer atentamente y **tener en cuenta** los criterios de corrección informados  [en el campus](https://campusgrado.fi.uba.ar/mod/page/view.php?id=73393).
 Respetar el formato y contenido las entradas de logs descritas en los ejercicios, pues son las que se chequean en cada uno de los tests.
+# Resolucion EJ1
+
+Se hizo un script de python llamado `generar-compose.py` que recibe por parámetro el nombre del archivo de salida y la cantidad de clientes esperados, y genera un archivo de docker compose con la cantidad de clientes solicitada. El script se encuentra en la raíz del proyecto y se puede ejecutar con el comando `./generar-compose.sh docker-compose-dev.yaml 5`.
+
+Se utilizo el docker compose incluido en el repositorio como plantilla para generar el nuevo archivo de docker compose y se agrega la posibilidad de tener mas clientes.
+
+Para generar un nuevo compose ejecutar lo siguiente comando:
+
+`./generar-compose.sh <archivo_salida> <cantidad_clientes>`
+
+Una vez hecho esto, se puede iniciar el proyecto con el comando `make docker-compose-up` y luego ver los logs con `make docker-compose-logs`. Se debería ver que se han iniciado 5 clientes y el servidor, y que cada cliente se conecta al servidor y envía mensajes de forma incremental.
+
+Para detener el proyecto, se puede ejecutar el comando `make docker-compose-down`, lo cual detendrá los containers y eliminará los recursos asociados al proyecto.
+
+# Resolucion EJ2
+
+Se modifico el script que genera el docker compose para que se creen volúmenes para cada cliente y para el servidor, y se monten los archivos de configuración correspondientes en cada container. De esta forma, los cambios realizados en los archivos de configuración serán efectivos sin necesidad de reconstruir las imágenes de Docker.
+
+Ademas se eliminio el nivel del log que tenian configurado para que utilizaran los de los archivos de configuracion.
+
+Para ejecutar esto, se puede seguir el mismo procedimiento que en el ejercicio anterior.
+
+# Resolucion EJ3
+
+Se creó un script de bash llamado `validar-echo-server.sh` que utiliza el comando `netcat` para enviar un mensaje al servidor y esperar recibir el mismo mensaje enviado.
+
+Este script crea un container temporal ligero, basado en la imagen `alpine`, que se conecta a la red del proyecto y utiliza `netcat` para comunicarse con el servidor sin necesidad de exponer puertos en la máquina host. Al finalizar la ejecución del comando, el contenedor se detiene y destruye automáticamente (gracias al flag `--rm`). Finalmente, el script verifica si la respuesta del servidor es exactamente igual al mensaje enviado e imprime el resultado de la prueba.
+Para ejecutar el script, se puede utilizar el siguiente comando:
+
+`./validar-echo-server.sh`
+
+Es importante tener en cuenta que el servidor debe estar corriendo para que la validación funcione correctamente. Se recomienda seguir el procedimiento de inicio descrito en los ejercicios anteriores para asegurarse de que el servidor esté activo antes de ejecutar el script de validación.
+
+# Resolucion EJ4
+
+Se modifico el cliente y el servidor para que ambos sistemas terminen de forma _graceful_ al recibir la signal SIGTERM. Para esto, se implementaron manejadores de señales en ambos programas que capturan la señal SIGTERM.
+
+**Del lado del servidor (Python)**: se agrego un manejador de señales que al momento de recibir la señal SIGTERM, cierra el socket de escucha y cualquier conexión activa antes de salir del programa.
+
+**Del lado del cliente (Golang)**: Se utiliza el paquete `context` de Go en combinación con `signal.NotifyContext` para capturar la señal de interrupción del sistema operativo (`SIGTERM`). Esto crea un contexto con un canal especial que será cancelado automáticamente cuando se reciba dicha señal. Notemos que si el cliente recibe esta señal mientras está procesando o enviando un mensaje, no se interrumpirá de forma abrupta, sino que permitirá que termine la iteración actual. Antes de continuar con el siguiente mensaje, mediante un bloque `select` se verificará si el contexto fue cancelado y, en caso de ser así, se abortará el ciclo garantizando un cierre limpio y ordenado de los recursos (_graceful shutdown_).
+
+Para ejecutar esto y comprobar el funcionamiento, se puede seguir el mismo procedimiento de inicio que en los ejercicios anteriores (`make docker-compose-up`). Luego, en otra terminal, se debe ejecutar `make docker-compose-down`, lo cual enviará internamente la señal `SIGTERM` (que espera un tiempo máximo configurado en el `Makefile`) para que los containers finalicen ordenadamente viendo en los logs los mensajes correspondientes de desconexión. 
+
+# Resolucion EJ5
+
+Se modifico la lógica de negocio tanto de los clientes como del servidor para el nuevo caso de uso de la Lotería Nacional. Se envia una apuesta por cada iteración del cliente, esta apuesta es indicada por una variables de entorno que estan definidas en el docker compose y que se inyectan en cada container. El servidor recibe las apuestas y las almacena utilizando la función `store_bet(...)` provista por la cátedra, logueando un mensaje de éxito por cada apuesta almacenada.
+
+Para ejecutar esto, se puede seguir el mismo procedimiento de inicio que en los ejercicios anteriores. 
+
+### Protocolo de Comunicación
+
+El protocolo implementado es un protocolo binario sencillo basado en **tamaño prefijado (Length-Prefixed)**. Cada mensaje consta estrictamente de dos partes:
+
+1. **Header (5 bytes fijos):** 
+   - **1 byte (OpCode):** Indica el tipo de mensaje (`1` = Apuesta, `2` = ACK).
+   - **4 bytes (Payload Length):** Un entero sin signo (Big-Endian) equivalente al tamaño en bytes del cuerpo del mensaje.
+2. **Payload (variable):** El cuerpo del mensaje cuya longitud exacta equivale al valor indicado en el header.
+   - **En Apuestas (OpCode = 1):** String codificado en UTF-8 en formato CSV: `Nombre,Apellido,Documento,FechaNacimiento,Numero`.
+   - **En ACKs (OpCode = 2):** String de 2 bytes con el valor `"OK"`.
+
+Al leer en dos pasos (primero exactos 5 bytes para el header y luego exactos `Payload Length` bytes para el cuerpo), el sistema asegura no leer ni de más ni de menos.
+
+Ademas se implementaron mecanismo para garantizar que no haya short reads ni short writes, utilizando bucles de lectura/escritura que se aseguran de procesar la cantidad exacta de bytes esperada antes de continuar con el siguiente mensaje.

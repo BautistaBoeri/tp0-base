@@ -5,6 +5,10 @@ import (
 	"io"
 )
 
+const (
+	MaxBatchSizeBytes = 8096
+)
+
 // BetReader es un wrapper sobre csv.Reader que mantiene el estado
 // de las apuestas leídas que no cupieron en el batch anterior.
 type BetReader struct {
@@ -56,7 +60,7 @@ func (br *BetReader) ReadBatch(maxAmount int) ([]Bet, error) {
 			betSize := 2 + len(bet.FirstName) + len(bet.LastName) + len(bet.Document) + len(bet.Birthdate) + len(bet.Number) + 4
 
 			// Si al sumar esta apuesta nos pasamos de seguridad (~8KB), la guardamos en la instancia para el PRÓXIMO batch
-			if currentBatchSize+betSize > 8000 {
+			if currentBatchSize+betSize > MaxBatchSizeBytes {
 				br.leftoverBet = &bet
 				// Retornamos nil porque no hay error, el único motivo de corte es que el batch está lleno
 				return batch, nil

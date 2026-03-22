@@ -281,3 +281,23 @@ Para lograrlo, se incorporaron las siguientes modificaciones:
 3. **Ciclo de vida del Cliente:**
    Tras enviar todos sus lotes de apuestas y agotar el archivo de origen, el cliente abre una conexión para notificar al servidor (`DONE_OP`). Por último, solicita los ganadores (`REQUEST_WINNERS_OP`) usando una conexión que se quedará bloqueada (en espera) hasta que el servidor haya comprobado que todas las agencias terminaron y esté listo para devolver los resultados.
 
+# Resolucion EJ8
+
+En esta última etapa, se modificó el servidor para que deje de ser secuencial y pase a procesar a múltiples agencias (y sus *batchs*) en paralelo minimizando el tiempo bloqueado. Se incorporaron herramientas de concurrencia y sincronización del módulo `threading` y `queue` de Python, respetando las limitaciones impuestas por el *Global Interpreter Lock (GIL)*.
+
+Las piezas principales de la arquitectura concurrente son:
+
+1. **Thread Pool (Worker Threads y Task Queue):**
+   El hilo principal (*main thread*) ahora solo se encarga de aceptar nuevas conexiones entrantes (`accept()`) para delegarlas lo más rápido posible. Estas conexiones (sockets) son colocadas en un hilo de tareas, una `queue.Queue()`, de modo seguro. Un grupo predefinido de *workers* (*Thread Pool*) retira constantemente las conexiones de la cola y las atiende de principio a fin de forma concurrente.
+   Esto previene el abuso de generar hilos ad-hoc infinitos, limitando cuántas atenciones simultáneas puede realizar el servidor en el host.
+
+2. **Secciones Críticas - Mútua Exclusión (Locks):**
+   A diferencia del modelo secuencial previo, ahora dos o cinco agencias podrían enviar apuestas e integrarlas en disco paralelamente. Se usaron distintos **`threading.Lock()`**:
+   - `_store_lock`: Previene condiciones de carrera o *dirty writes* al momento de almacenar persistentemente el batch de apuestas, garantizando acceso mutuamente excluyente al usar la función `store_bets`.
+   - `_agencias_recibidas_lock`: Protege la estructura responsable de contabilizar y marcar en memoria qué agencias ya enviaron su mensaje de finalización (`DONE_OP`).
+
+3. **Sincronización Avanzada de Fases (Events y Sorteo):**
+   Para sustituir las esperas activas (*busy waiting*), que perjudicarían sustancialmente el uso de la CPU en Python, se empleó un hilo supervisor y distintos flags como **`threading.Event()`**:
+   - `_todos_listos_event`: Un evento que los distintos workers pueden activar al notificar el último `DONE`. Un thread denominado `__supervisor_sorteo`  se bloquea en este *Event* (con `.wait()`) hasta percibir que todas las agencias terminaron, procediendo a efectuar luego el sorteo.
+   - `_sorteo_terminado_event`: Aquellos workers que reciben la consulta de resultados a través del opcode `REQUEST_WINNERS_OP` se duermen a la espera de que el *Thread Supervisor* notifique fehacientemente este evento luego de terminar el sorteo, despertándolos masiva y concurrentemente para resolver su respuesta a la red.
+

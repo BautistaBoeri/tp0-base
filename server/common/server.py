@@ -17,7 +17,7 @@ class Server:
         self._store_lock = threading.Lock()
         
         # Thread Pool configuration
-        self._pool_size = 5 
+        self._pool_size = agencies
         self._task_queue = queue.Queue()
         self._workers = []
 

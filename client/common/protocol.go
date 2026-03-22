@@ -82,7 +82,7 @@ func SendDone(conn net.Conn, agencyID uint8) error {
 	return sendAll(conn, header)
 }
 
-// SendRequestWinners solicita los ganadores de forma bloqueante hasta que estén disponibles.
+// SendRequestWinners solicita al servidor los resultados de los ganadores de forma bloqueante.
 // Protocolo: [1 byte: REQUEST_WINNERS_OP] + [1 byte: agency_id] + [2 bytes: 0 (unused)]
 func SendRequestWinners(conn net.Conn, agencyID uint8) error {
 	header := make([]byte, 4)

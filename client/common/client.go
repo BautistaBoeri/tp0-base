@@ -56,12 +56,6 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 	}
 	defer file.Close()
 
-	err = c.createClientSocket()
-	if err != nil {
-		return
-	}
-	defer c.conn.Close()
-
 	agencyID, err := strconv.ParseUint(c.config.ID, 10, 8)
 	if err != nil {
 		log.Criticalf("action: parse_agency_id | result: fail | error: %v", err)
@@ -71,7 +65,7 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 	csvReader := csv.NewReader(file)
 	betReader := NewBetReader(csvReader)
 
-	// Loop: enviar todos los batches por el mismo socket
+	// Loop: crear una conexión nueva por cada batch, mandarlo y cerrarla
 	for {
 		select {
 		case <-ctx.Done():
@@ -87,18 +81,27 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 			break
 		}
 
+		err = c.createClientSocket()
+		if err != nil {
+			return
+		}
+
 		// Enviar batch entero
 		err = SendBetBatch(c.conn, uint8(agencyID), batch)
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
+			c.conn.Close()
 			return
 		}
 
 		_, err = ReceiveAckMessage(c.conn)
 		if err != nil {
 			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
+			c.conn.Close()
 			return
 		}
+
+		c.conn.Close()
 
 		log.Infof("action: batch_enviado | result: success | cantidad_apuestas: %d", len(batch))
 
@@ -111,16 +114,33 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 	}
 
 	// Notificar al servidor que terminamos
+	err = c.createClientSocket()
+	if err != nil {
+		return
+	}
 	err = SendDone(c.conn, uint8(agencyID))
 	if err != nil {
 		log.Errorf("action: send_done | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		c.conn.Close()
 		return
 	}
+	_, err = ReceiveAckMessage(c.conn)
+	if err != nil {
+		log.Errorf("action: receive_done_ack | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		c.conn.Close()
+		return
+	}
+	c.conn.Close()
 
-	// Solicitar ganadores
+	// Pedir ganadores
+	err = c.createClientSocket()
+	if err != nil {
+		return
+	}
 	err = SendRequestWinners(c.conn, uint8(agencyID))
 	if err != nil {
-		log.Errorf("action: request_winners | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		log.Errorf("action: send_request_winners | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		c.conn.Close()
 		return
 	}
 
@@ -128,8 +148,10 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 	winners, err := ReceiveWinners(c.conn)
 	if err != nil {
 		log.Errorf("action: consulta_ganadores | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		c.conn.Close()
 		return
 	}
+	c.conn.Close()
 
 	log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", len(winners))
 }

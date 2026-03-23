@@ -85,12 +85,18 @@ func main() {
 
 	PrintConfig(v)
 
+	batchAmount := v.GetInt("batch.maxAmount")
+	if batchAmount > 80 {
+		log.Warningf("Se detectó un batch maxAmount muy alto (%d). Limitando a 80 para respetar tamaño máximo de red de 8kB.", batchAmount)
+		batchAmount = 80
+	}
+
 	clientConfig := common.ClientConfig{
 		ServerAddress: v.GetString("server.address"),
 		ID:            v.GetString("id"),
 		LoopAmount:    v.GetInt("loop.amount"),
 		LoopPeriod:    v.GetDuration("loop.period"),
-		BatchAmount:   v.GetInt("batch.maxAmount"),
+		BatchAmount:   batchAmount,
 	}
 
 	client := common.NewClient(clientConfig)

@@ -40,15 +40,17 @@ class Server:
         client socket will also be closed
         """
         try:
-            bet = protocol.recv_bet(client_sock)
+            dto = protocol.recv_bet(client_sock)
             
-            bet_to_store = utils.Bet("1", bet.first_name, bet.last_name, bet.document, bet.birthdate, bet.number)
+            bet_to_store = utils.Bet("1", dto.first_name, dto.last_name, dto.document, dto.birthdate, dto.number)
             utils.store_bets([bet_to_store])
             
-            logging.info(f'action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}')
+            logging.info(f'action: apuesta_almacenada | result: success | dni: {dto.document} | numero: {dto.number}')
             
             protocol.send_ack(client_sock)
 
+        except protocol.BetFormatError as e:
+            logging.error(f'action: receive_message | result: fail | error: {e}')
         except OSError as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")
         except Exception as e:

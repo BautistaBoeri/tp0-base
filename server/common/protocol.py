@@ -1,9 +1,19 @@
 import socket
 import struct
-from common.models import Bet
 
 OPCODE_BET = 1
 OPCODE_ACK = 2
+
+class BetFormatError(ValueError):
+    pass
+
+class BetDTO:
+    def __init__(self, first_name: str, last_name: str, document: str, birthdate: str, number: str):
+        self.first_name = first_name
+        self.last_name = last_name
+        self.document = document
+        self.birthdate = birthdate
+        self.number = number
 
 def _recv_exact(sock: socket.socket, length: int) -> bytearray:
     data = bytearray()
@@ -14,7 +24,7 @@ def _recv_exact(sock: socket.socket, length: int) -> bytearray:
         data.extend(packet)
     return data
 
-def recv_bet(sock: socket.socket) -> Bet:
+def recv_bet(sock: socket.socket) -> BetDTO:
     header_bytes = _recv_exact(sock, 5)
     
     opcode, payload_length = struct.unpack('!BI', header_bytes)
@@ -27,9 +37,9 @@ def recv_bet(sock: socket.socket) -> Bet:
     campos = mensaje.split(',')
     
     if len(campos) != 5:
-        raise ValueError(f"Formato de apuesta incorrecto. Se esperaban 5 campos, llegaron: {len(campos)}")
+        raise BetFormatError(f"Formato de apuesta incorrecto. Se esperaban 5 campos, llegaron: {len(campos)}")
         
-    return Bet(
+    return BetDTO(
         first_name=campos[0],
         last_name=campos[1],
         document=campos[2],

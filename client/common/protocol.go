@@ -9,6 +9,14 @@ import (
 const SEND_BET_OP = 1
 const ACK_OP = 2
 
+type BetDTO struct {
+	FirstName string
+	LastName  string
+	Document  string
+	Birthdate string
+	Number    string
+}
+
 // sendAll asegura que se envíen todos los bytes sin short-writes
 func sendAll(conn net.Conn, data []byte) error {
 	totalSent := 0
@@ -37,9 +45,9 @@ func receiveAll(conn net.Conn, length int) ([]byte, error) {
 	return data, nil
 }
 
-// SendBetMessage empaqueta y envía la apuesta
-func SendBetMessage(conn net.Conn, bet Bet) error {
-	csv := fmt.Sprintf("%s,%s,%s,%s,%s", bet.FirstName, bet.LastName, bet.Document, bet.Birthdate, bet.Number)
+// SendBetMessage empaqueta y envía un DTO de apuesta por red
+func SendBetMessage(conn net.Conn, dto BetDTO) error {
+	csv := fmt.Sprintf("%s,%s,%s,%s,%s", dto.FirstName, dto.LastName, dto.Document, dto.Birthdate, dto.Number)
 	payload := []byte(csv)
 
 	header := make([]byte, 5)

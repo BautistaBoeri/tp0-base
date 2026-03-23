@@ -56,7 +56,15 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 			}
 		}
 
-		err = SendBetMessage(c.conn, c.config.Bet)
+		dto := BetDTO{
+			FirstName: c.config.Bet.FirstName,
+			LastName:  c.config.Bet.LastName,
+			Document:  c.config.Bet.Document,
+			Birthdate: c.config.Bet.Birthdate,
+			Number:    c.config.Bet.Number,
+		}
+
+		err = SendBetMessage(c.conn, dto)
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
 			c.conn.Close()

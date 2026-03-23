@@ -1,6 +1,5 @@
 import socket
 import struct
-from common.models import Bet
 
 OPCODE_BET = 1
 OPCODE_ACK = 2
@@ -12,6 +11,14 @@ class BetFormatError(ValueError):
         super().__init__(message)
         self.batch_size = batch_size
 
+class BetDTO:
+    def __init__(self, first_name: str, last_name: str, document: str, birthdate: str, number: str):
+        self.first_name = first_name
+        self.last_name = last_name
+        self.document = document
+        self.birthdate = birthdate
+        self.number = number
+
 def _recv_exact(sock: socket.socket, length: int) -> bytearray:
     data = bytearray()
     while len(data) < length:
@@ -21,7 +28,7 @@ def _recv_exact(sock: socket.socket, length: int) -> bytearray:
         data.extend(packet)
     return data
 
-def recv_bet_batch(sock: socket.socket) -> list[Bet]:
+def recv_bet_batch(sock: socket.socket) -> list[BetDTO]:
     # Leemos el opcode y la cantidad de apuestas
     # El opcode es 1 byte (!B) y la cantidad N son 2 bytes enteros (!H de unsigned short)
     header_bytes = _recv_exact(sock, 3)
@@ -31,7 +38,7 @@ def recv_bet_batch(sock: socket.socket) -> list[Bet]:
     if opcode != OPCODE_BATCH:
         raise ValueError(f"Opcode inesperado. Se esperaba {OPCODE_BATCH} pero llegó {opcode}")
         
-    batch = []
+    dtos = []
     
     for _ in range(batch_size):
         # 1. Leemos el tamaño de esta apuesta individual (2 bytes, !H)
@@ -46,16 +53,16 @@ def recv_bet_batch(sock: socket.socket) -> list[Bet]:
         if len(campos) != 5:
             raise BetFormatError(f"Formato de apuesta incorrecto. Se esperaban 5 campos, llegaron: {len(campos)}", batch_size)
             
-        bet = Bet(
+        dto = BetDTO(
             first_name=campos[0],
             last_name=campos[1],
             document=campos[2],
             birthdate=campos[3],
             number=campos[4]
         )
-        batch.append(bet)
+        dtos.append(dto)
 
-    return batch
+    return dtos
 
 def send_ack(sock: socket.socket):
     payload = b"OK"

@@ -39,10 +39,29 @@ func receiveAll(conn net.Conn, length int) ([]byte, error) {
 	return data, nil
 }
 
-// SendBetMessage empaqueta de forma individual UNA sola apuesta.
+type BetDTO struct {
+	FirstName string
+	LastName  string
+	Document  string
+	Birthdate string
+	Number    string
+}
+
+// ConvertToDTO convierte un modelo de negocio Bet a un DTO de red
+func ConvertToDTO(bet Bet) BetDTO {
+	return BetDTO{
+		FirstName: bet.FirstName,
+		LastName:  bet.LastName,
+		Document:  bet.Document,
+		Birthdate: bet.Birthdate,
+		Number:    bet.Number,
+	}
+}
+
+// SerializeBetDTO empaqueta de forma individual UNA sola apuesta.
 // Devuelve el slice compuesto por [2 bytes: Largo de la apuesta] + [Datos de la apuesta en CSV]
-func SerializeBet(bet Bet) []byte {
-	csv := fmt.Sprintf("%s,%s,%s,%s,%s", bet.FirstName, bet.LastName, bet.Document, bet.Birthdate, bet.Number)
+func SerializeBetDTO(dto BetDTO) []byte {
+	csv := fmt.Sprintf("%s,%s,%s,%s,%s", dto.FirstName, dto.LastName, dto.Document, dto.Birthdate, dto.Number)
 	payload := []byte(csv)
 
 	header := make([]byte, 2)
@@ -53,15 +72,15 @@ func SerializeBet(bet Bet) []byte {
 
 // SendBetBatch envía un lote (batch) de apuestas en un solo paquete.
 // Protocolo: [1 byte: SEND_BATCH_OP] + [2 bytes: Cantidad N] + [N Apuestas serializadas]
-func SendBetBatch(conn net.Conn, batch []Bet) error {
+func SendBetBatch(conn net.Conn, dtos []BetDTO) error {
 
 	header := make([]byte, 3)
 	header[0] = SEND_BATCH_OP
-	binary.BigEndian.PutUint16(header[1:], uint16(len(batch)))
+	binary.BigEndian.PutUint16(header[1:], uint16(len(dtos)))
 
 	var payload []byte
-	for _, bet := range batch {
-		serializedBet := SerializeBet(bet)
+	for _, dto := range dtos {
+		serializedBet := SerializeBetDTO(dto)
 		payload = append(payload, serializedBet...)
 	}
 

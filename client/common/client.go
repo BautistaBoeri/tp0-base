@@ -76,8 +76,13 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 			}
 		}
 
+		var dtos []BetDTO
+		for _, bet := range batch {
+			dtos = append(dtos, ConvertToDTO(bet))
+		}
+
 		// Enviar batch entero
-		err = SendBetBatch(c.conn, batch)
+		err = SendBetBatch(c.conn, dtos)
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
 			c.conn.Close()

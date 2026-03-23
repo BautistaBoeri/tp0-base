@@ -148,7 +148,7 @@ class Server:
                 ]
                 protocol.send_winners(client_sock, winners)
 
-        except BetFormatError as e:
+        except protocol.BetFormatError as e:
             logging.error(f'action: apuesta_recibida | result: fail | cantidad: {e.batch_size}')
             protocol.send_error(client_sock)
         except Exception as e:

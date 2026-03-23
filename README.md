@@ -245,7 +245,9 @@ Ademas se implementaron mecanismo para garantizar que no haya short reads ni sho
 
 # Resolucion EJ6
 
-Se modifico el cliente para que envíe varias apuestas a la vez utilizando la modalidad de procesamiento por _batchs_. Para esto, se lee el archivo de apuestas correspondiente a cada cliente. Estos archivos se inyectan en los containers mediante volúmenes de Docker, manteniendo la convención de que el cliente N utiliza el archivo de apuestas `.data/agency-{N}.csv`. Luego, se envían las apuestas en lotes (batchs) cuya cantidad máxima es configurable desde `config.yaml` bajo la clave `batch: maxAmount`. Ademas, aseguramos que los paquetes no excedan los 8kB. Para esto se va armando un batch con las apuestas a enviar, y cuando se alcanza el límite de cantidad o de tamaño, se envía el batch al servidor.
+Se modifico el cliente para que envíe varias apuestas a la vez utilizando la modalidad de procesamiento por _batchs_. Para esto, se lee el archivo de apuestas correspondiente a cada cliente. Estos archivos se inyectan en los containers mediante volúmenes de Docker, manteniendo la convención de que el cliente N utiliza el archivo de apuestas `.data/agency-{N}.csv`. Luego, se envían las apuestas en lotes (batchs) cuya cantidad máxima es configurable desde `config.yaml` bajo la clave `batch: maxAmount`. 
+
+Ademas, aseguramos que los paquetes no excedan los 8kB. Para hacerlo de manera limpia y sin acoplar la lectura de CSV con la lógica de envío por red, se estableció una restricción estática: se redujo el valor por defecto configurado a `80` apuestas (dado que cada apuesta tiene un límite histórico razonable de aprox. 100 bytes, garantizamos no superar los 8000 bytes). Adicionalmente, el cliente impone un límite máximo en el inicio, forzando a que este `maxAmount` validado por configuración nunca sobrepase los 80, garantizando así la restricción de los 8kB de forma declarativa e independientemente del config provisto.
 
 Actualizaciones del protocolo de comunicación:
 

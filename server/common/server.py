@@ -100,17 +100,18 @@ class Server:
             msg_type, agency_id, payload = protocol.recv_message(client_sock)
 
             if msg_type == 'batch':
-                bets_to_store = [
-                    utils.Bet(
+                bets_to_store = []
+                for dto in payload:
+                    bet = utils.Bet(
                         str(agency_id),
-                        bet.first_name,
-                        bet.last_name,
-                        bet.document,
-                        bet.birthdate,
-                        bet.number
+                        dto.first_name,
+                        dto.last_name,
+                        dto.document,
+                        dto.birthdate,
+                        dto.number
                     )
-                    for bet in payload
-                ]
+                    bets_to_store.append(bet)
+                    
                 utils.store_bets(bets_to_store)
                 logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(payload)}')
                 protocol.send_ack(client_sock)

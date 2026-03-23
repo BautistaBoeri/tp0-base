@@ -265,6 +265,10 @@ Para soportar el envío por batches, el protocolo ahora funciona de la siguiente
 3. **Respuestas (ACK/ERROR):**
    El servidor responde comprobando que todas se hayan procesado con un mensaje compuesto de **5 bytes de header** (OpCode + Largo de respuesta) y su respectivo mensaje (`"OK"` u `"ERROR"`).
 
+### Arquitectura y Separación de Responsabilidades
+
+Para asegurar un correcto desacople entre la capa de red y la de aplicación, se implementó el **DTO (Data Transfer Object)** tanto en el cliente como en el servidor. La capa de protocolo (`protocol.go` / `protocol.py`) se limita estrictamente a la serialización, deserialización y control de tramas (envío/recepción de bytes), devolviendo estructuras DTO planas.
+
 # Resolucion EJ7
 
 En esta etapa se implementó un mecanismo de **sincronización y consulta** para que el servidor sepa cuándo terminaron de enviarse todas las apuestas, pueda realizar el sorteo y notifique a las agencias si tuvieron ganadores. 

@@ -108,17 +108,18 @@ class Server:
             agency_id = msg_agency_id
 
             if msg_type == 'batch':
-                bets_to_store = [
-                    utils.Bet(
+                bets_to_store = []
+                for dto in payload:
+                    bet = utils.Bet(
                         str(agency_id),
-                        bet.first_name,
-                        bet.last_name,
-                        bet.document,
-                        bet.birthdate,
-                        bet.number
+                        dto.first_name,
+                        dto.last_name,
+                        dto.document,
+                        dto.birthdate,
+                        dto.number
                     )
-                    for bet in payload
-                ]
+                    bets_to_store.append(bet)
+
                 with self._store_lock:
                     utils.store_bets(bets_to_store)
                     
@@ -147,7 +148,7 @@ class Server:
                 ]
                 protocol.send_winners(client_sock, winners)
 
-        except protocol.BetFormatError as e:
+        except BetFormatError as e:
             logging.error(f'action: apuesta_recibida | result: fail | cantidad: {e.batch_size}')
             protocol.send_error(client_sock)
         except Exception as e:
@@ -156,7 +157,7 @@ class Server:
             client_sock.close()
 
     def __accept_new_connection(self):
-        """
+        """protocol.
         Accept new connections
 
         Function blocks until a connection to a client is made.

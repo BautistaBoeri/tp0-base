@@ -1,6 +1,5 @@
 import socket
 import struct
-from common.models import Bet
 
 OPCODE_BET = 1
 OPCODE_ACK = 2
@@ -15,6 +14,14 @@ class BetFormatError(ValueError):
         super().__init__(message)
         self.batch_size = batch_size
 
+class BetDTO:
+    def __init__(self, first_name, last_name, document, birthdate, number):
+        self.first_name = first_name
+        self.last_name = last_name
+        self.document = document
+        self.birthdate = birthdate
+        self.number = number
+
 def _recv_exact(sock: socket.socket, length: int) -> bytearray:
     data = bytearray()
     while len(data) < length:
@@ -28,7 +35,7 @@ def recv_message(sock: socket.socket):
     """
     Reads the next message from the socket.
     Returns:
-      ('batch', agency_id, list[Bet])  if it's a BATCH message
+      ('batch', agency_id, list[bytes])  if it's a BATCH message
       ('done', agency_id, None)        if it's a DONE message
       ('request_winners', agency_id, None) if it's a REQUEST_WINNERS message
     Raises ValueError on unknown opcode.
@@ -44,7 +51,7 @@ def recv_message(sock: socket.socket):
         return ('request_winners', agency_id, None)
 
     if opcode == OPCODE_BATCH:
-        batch = []
+        dtos = []
         for _ in range(count):
             bet_len_bytes = _recv_exact(sock, 2)
             bet_len = struct.unpack('!H', bet_len_bytes)[0]
@@ -59,15 +66,10 @@ def recv_message(sock: socket.socket):
                     count
                 )
 
-            bet = Bet(
-                first_name=campos[0],
-                last_name=campos[1],
-                document=campos[2],
-                birthdate=campos[3],
-                number=campos[4]
-            )
-            batch.append(bet)
-        return ('batch', agency_id, batch)
+            dto = BetDTO(campos[0], campos[1], campos[2], campos[3], campos[4])
+            dtos.append(dto)
+
+        return ('batch', agency_id, dtos)
 
     raise ValueError(f"Opcode desconocido: {opcode}")
 

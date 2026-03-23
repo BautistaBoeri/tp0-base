@@ -86,8 +86,14 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 			return
 		}
 
+		// Convertir el modelo de negocio Bet a DTO para la capa de red
+		var dtos []BetDTO
+		for _, bet := range batch {
+			dtos = append(dtos, ConvertToDTO(bet))
+		}
+
 		// Enviar batch entero
-		err = SendBetBatch(c.conn, uint8(agencyID), batch)
+		err = SendBetBatch(c.conn, uint8(agencyID), dtos)
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
 			c.conn.Close()

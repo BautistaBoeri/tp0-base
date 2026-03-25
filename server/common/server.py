@@ -68,6 +68,7 @@ class Server:
             # Delega el socket a algun Worker libre poniendolo en la queue
             self._task_queue.put(client_sock)
 
+        for t in self._workers:
             t.join()
 
     def __supervisor_sorteo(self):

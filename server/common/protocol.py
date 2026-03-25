@@ -9,10 +9,12 @@ OPCODE_WINNERS = 5
 OPCODE_REQUEST_WINNERS = 6
 OPCODE_ERROR = 9
 
+
 class BetFormatError(ValueError):
     def __init__(self, message, batch_size):
         super().__init__(message)
         self.batch_size = batch_size
+
 
 class BetDTO:
     def __init__(self, first_name, last_name, document, birthdate, number):
@@ -22,6 +24,7 @@ class BetDTO:
         self.birthdate = birthdate
         self.number = number
 
+
 def _recv_exact(sock: socket.socket, length: int) -> bytearray:
     data = bytearray()
     while len(data) < length:
@@ -30,6 +33,7 @@ def _recv_exact(sock: socket.socket, length: int) -> bytearray:
             raise ConnectionError("Connection closed before reading all expected bytes")
         data.extend(packet)
     return data
+
 
 def recv_message(sock: socket.socket):
     """
@@ -42,56 +46,59 @@ def recv_message(sock: socket.socket):
     """
     # Header: opcode (1 byte) + agency_id (1 byte) + count/unused (2 bytes)
     header_bytes = _recv_exact(sock, 4)
-    opcode, agency_id, count = struct.unpack('!BBH', header_bytes)
+    opcode, agency_id, count = struct.unpack("!BBH", header_bytes)
 
     if opcode == OPCODE_DONE:
-        return ('done', agency_id, None)
+        return ("done", agency_id, None)
 
     if opcode == OPCODE_REQUEST_WINNERS:
-        return ('request_winners', agency_id, None)
+        return ("request_winners", agency_id, None)
 
     if opcode == OPCODE_BATCH:
         dtos = []
         for _ in range(count):
             bet_len_bytes = _recv_exact(sock, 2)
-            bet_len = struct.unpack('!H', bet_len_bytes)[0]
+            bet_len = struct.unpack("!H", bet_len_bytes)[0]
 
             payload_bytes = _recv_exact(sock, bet_len)
-            mensaje = payload_bytes.decode('utf-8')
-            campos = mensaje.split(',')
+            mensaje = payload_bytes.decode("utf-8")
+            campos = mensaje.split(",")
 
             if len(campos) != 5:
                 raise BetFormatError(
                     f"Formato de apuesta incorrecto. Se esperaban 5 campos, llegaron: {len(campos)}",
-                    count
+                    count,
                 )
 
             dto = BetDTO(campos[0], campos[1], campos[2], campos[3], campos[4])
             dtos.append(dto)
 
-        return ('batch', agency_id, dtos)
+        return ("batch", agency_id, dtos)
 
     raise ValueError(f"Opcode desconocido: {opcode}")
 
+
 def send_ack(sock: socket.socket):
     payload = b"OK"
-    header = struct.pack('!BI', OPCODE_ACK, len(payload))
+    header = struct.pack("!BI", OPCODE_ACK, len(payload))
     sock.sendall(header + payload)
+
 
 def send_error(sock: socket.socket):
     payload = b"ERROR"
-    header = struct.pack('!BI', OPCODE_ERROR, len(payload))
+    header = struct.pack("!BI", OPCODE_ERROR, len(payload))
     sock.sendall(header + payload)
+
 
 def send_winners(sock: socket.socket, winners: list[str]):
     """
     Sends the list of winner DNIs to the client.
     Format: opcode (1B) + count (2B) + for each DNI: len(2B) + dni bytes
     """
-    header = struct.pack('!BH', OPCODE_WINNERS, len(winners))
+    header = struct.pack("!BH", OPCODE_WINNERS, len(winners))
     payload = bytearray(header)
     for dni in winners:
-        encoded = dni.encode('utf-8')
-        payload += struct.pack('!H', len(encoded))
+        encoded = dni.encode("utf-8")
+        payload += struct.pack("!H", len(encoded))
         payload += encoded
     sock.sendall(bytes(payload))

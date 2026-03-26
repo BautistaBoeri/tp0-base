@@ -269,6 +269,10 @@ Para soportar el envío por batches, el protocolo ahora funciona de la siguiente
 
 Para asegurar un correcto desacople entre la capa de red y la de aplicación, se implementó el **DTO (Data Transfer Object)** tanto en el cliente como en el servidor. La capa de protocolo (`protocol.go` / `protocol.py`) se limita estrictamente a la serialización, deserialización y control de tramas (envío/recepción de bytes), devolviendo estructuras DTO planas.
 
+### Ciclo de vida y Reutilización de Conexiones
+
+Se modificó el modelo de conexiones a uno persistente . En lugar de abrir y cerrar un socket TCP por cada apuesta o cada lote transmitido (lo cual genera un alto overhead en la red por el handshake de TCP), el cliente ahora abre una única conexión al iniciar. Luego itera y envía todos y cada uno de los batches necesarios a través de ese mismo canal. El servidor se queda escuchando bloqueado en esa conexión específica, procesando en bucle todos los lotes de dicho cliente hasta que la conexión se cierre.
+
 # Resolucion EJ7
 
 En esta etapa se implementó un mecanismo de **sincronización y consulta** para que el servidor sepa cuándo terminaron de enviarse todas las apuestas, pueda realizar el sorteo y notifique a las agencias si tuvieron ganadores. 

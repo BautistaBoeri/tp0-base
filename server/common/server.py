@@ -105,39 +105,31 @@ class Server:
         self, client_sock, pending_clients, finished_agencies
     ):
         """
-        Reads exactly one message from the socket, processes it, and closes the socket
+        Reads messages from the socket until the client disconnects or sends a DONE,
         unless it's a request_winners message, in which case it keeps it open.
         """
         try:
-            msg_type, agency_id, payload = protocol.recv_message(client_sock)
+            while True:
+                try:
+                    msg_type, agency_id, payload = protocol.recv_message(client_sock)
+                except ConnectionError:
+                    # El cliente cerró la conexión
+                    client_sock.close()
+                    break
 
-            if msg_type == "batch":
-                bets_to_store = []
-                for dto in payload:
-                    bet = utils.Bet(
-                        str(agency_id),
-                        dto.first_name,
-                        dto.last_name,
-                        dto.document,
-                        dto.birthdate,
-                        dto.number,
-                    )
-                    bets_to_store.append(bet)
+                if msg_type == "batch":
+                    self.__process_batch(agency_id, payload)
+                    protocol.send_ack(client_sock)
 
-                utils.store_bets(bets_to_store)
-                logging.info(
-                    f"action: apuesta_recibida | result: success | cantidad: {len(payload)}"
-                )
-                protocol.send_ack(client_sock)
-                client_sock.close()
+                elif msg_type == "done":
+                    finished_agencies.add(agency_id)
+                    protocol.send_ack(client_sock)
+                    client_sock.close()
+                    break
 
-            elif msg_type == "done":
-                finished_agencies.add(agency_id)
-                protocol.send_ack(client_sock)
-                client_sock.close()
-
-            elif msg_type == "request_winners":
-                pending_clients.append((client_sock, agency_id))
+                elif msg_type == "request_winners":
+                    pending_clients.append((client_sock, agency_id))
+                    break
 
         except protocol.BetFormatError as e:
             logging.error(
@@ -149,6 +141,24 @@ class Server:
         except Exception as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")
             client_sock.close()
+
+    def __process_batch(self, agency_id, payload):
+        bets_to_store = []
+        for dto in payload:
+            bet = utils.Bet(
+                str(agency_id),
+                dto.first_name,
+                dto.last_name,
+                dto.document,
+                dto.birthdate,
+                dto.number,
+            )
+            bets_to_store.append(bet)
+
+        utils.store_bets(bets_to_store)
+        logging.info(
+            f"action: apuesta_recibida | result: success | cantidad: {len(payload)}"
+        )
 
     def __accept_new_connection(self):
         """

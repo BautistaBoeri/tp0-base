@@ -71,17 +71,17 @@ func SerializeBetDTO(dto BetDTO) []byte {
 }
 
 // SendBetBatch envía un lote (batch) de apuestas en un solo paquete.
-// Protocolo: [1 byte: SEND_BATCH_OP] + [2 bytes: Cantidad N] + [N Apuestas serializadas]
-func SendBetBatch(conn net.Conn, dtos []BetDTO) error {
+// Protocolo: [1 byte: SEND_BATCH_OP] + [1 byte: Agency ID] + [2 bytes: Cantidad N] + [N Apuestas serializadas]
+func SendBetBatch(conn net.Conn, agencyID uint8, dtos []BetDTO) error {
 
-	header := make([]byte, 3)
+	header := make([]byte, 4)
 	header[0] = SEND_BATCH_OP
-	binary.BigEndian.PutUint16(header[1:], uint16(len(dtos)))
+	header[1] = agencyID
+	binary.BigEndian.PutUint16(header[2:], uint16(len(dtos)))
 
 	var payload []byte
 	for _, dto := range dtos {
-		serializedBet := SerializeBetDTO(dto)
-		payload = append(payload, serializedBet...)
+		payload = append(payload, SerializeBetDTO(dto)...)
 	}
 
 	packet := append(header, payload...)

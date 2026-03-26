@@ -40,17 +40,20 @@ class Server:
         client socket will also be closed
         """
         try:
-            dtos = protocol.recv_bet_batch(client_sock)
-            
-            bets_to_store = []
-            for dto in dtos:
-                bet_to_store = utils.Bet("1", dto.first_name, dto.last_name, dto.document, dto.birthdate, dto.number)
-                bets_to_store.append(bet_to_store)
-            
-            utils.store_bets(bets_to_store)
-            
-            logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(dtos)}')
-            protocol.send_ack(client_sock)
+            while True:
+                agency_id, dtos = protocol.recv_bet_batch(client_sock)
+                if dtos is None:
+                    break
+                
+                bets_to_store = []
+                for dto in dtos:
+                    bet_to_store = utils.Bet(agency_id, dto.first_name, dto.last_name, dto.document, dto.birthdate, dto.number)
+                    bets_to_store.append(bet_to_store)
+                
+                utils.store_bets(bets_to_store)
+                
+                logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(dtos)}')
+                protocol.send_ack(client_sock)
 
         except protocol.BetFormatError as e:
             logging.error(f'action: apuesta_recibida | result: fail | cantidad: {e.batch_size}')

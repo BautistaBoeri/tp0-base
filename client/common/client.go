@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/op/go-logging"
@@ -68,22 +69,18 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 	csvReader := csv.NewReader(file)
 	betReader := NewBetReader(csvReader)
 
+	errConn := c.createClientSocket()
+	if errConn != nil {
+		log.Errorf("action: connect | result: fail | client_id: %v | error: %v", c.config.ID, errConn)
+		return
+	}
+	defer c.conn.Close()
+
 	for {
 		batch, errRead := betReader.ReadBatch(c.config.BatchAmount)
 
-		// Si no hay más apuestas para leer, salimos  (Finalizó todo el archivo)
 		if len(batch) == 0 && errRead == io.EOF {
 			break
-		}
-
-		err := c.createClientSocket()
-		if err != nil {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(c.config.LoopPeriod):
-				continue
-			}
 		}
 
 		var dtos []BetDTO
@@ -91,17 +88,20 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 			dtos = append(dtos, ConvertToDTO(bet))
 		}
 
+		agencyIDInt, errParse := strconv.Atoi(c.config.ID)
+		if errParse != nil {
+			log.Errorf("action: parse_agency_id | result: fail | client_id: %v | error: %v", c.config.ID, errParse)
+			return
+		}
+
 		// Enviar batch entero
-		err = SendBetBatch(c.conn, dtos)
+		err = SendBetBatch(c.conn, uint8(agencyIDInt), dtos)
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			c.conn.Close()
 			return
 		}
 
 		_, err = ReceiveAckMessage(c.conn)
-		c.conn.Close()
-
 		if err != nil {
 			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
 			return
@@ -116,5 +116,7 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 		case <-time.After(c.config.LoopPeriod):
 		}
 	}
+
+	c.conn.Close()
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 }

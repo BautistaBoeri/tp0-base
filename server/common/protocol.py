@@ -28,16 +28,24 @@ def _recv_exact(sock: socket.socket, length: int) -> bytearray:
         data.extend(packet)
     return data
 
-def recv_bet_batch(sock: socket.socket) -> list[BetDTO]:
-    # Leemos el opcode y la cantidad de apuestas
-    # El opcode es 1 byte (!B) y la cantidad N son 2 bytes enteros (!H de unsigned short)
-    header_bytes = _recv_exact(sock, 3)
-    
-    opcode, batch_size = struct.unpack('!BH', header_bytes)
+def recv_bet_batch(sock: socket.socket) -> tuple[str, list[BetDTO]]:
+    try:
+        opcode_bytes = _recv_exact(sock, 1)
+    except ConnectionError:
+        # El cliente cerró la conexión al terminar sus batches
+        return None, None
+
+    opcode = struct.unpack('!B', opcode_bytes)[0]
     
     if opcode != OPCODE_BATCH:
         raise ValueError(f"Opcode inesperado. Se esperaba {OPCODE_BATCH} pero llegó {opcode}")
         
+    agency_id_bytes = _recv_exact(sock, 1)
+    agency_id = str(struct.unpack('!B', agency_id_bytes)[0])
+    
+    size_bytes = _recv_exact(sock, 2)
+    batch_size = struct.unpack('!H', size_bytes)[0]
+    
     dtos = []
     
     for _ in range(batch_size):
@@ -62,7 +70,7 @@ def recv_bet_batch(sock: socket.socket) -> list[BetDTO]:
         )
         dtos.append(dto)
 
-    return dtos
+    return agency_id, dtos
 
 def send_ack(sock: socket.socket):
     payload = b"OK"

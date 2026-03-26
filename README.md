@@ -275,15 +275,21 @@ En esta etapa se implementó un mecanismo de **sincronización y consulta** para
 
 Para lograrlo, se incorporaron las siguientes modificaciones:
 
-1. **Ampliación del Protocolo:**
-   - **`SEND_BATCH_OP` (3):** Ahora incluye también el identificador de la agencia (`agency_id`) de 1 byte en el header.
-   - **`DONE_OP` (4):** Mensaje que envía la agencia al terminar de leer su archivo, indicando que no tiene más apuestas.
-   - **`REQUEST_WINNERS_OP` (6):** Mensaje que envía la agencia para quedarse a la espera de los resultados.
-   - **`WINNERS_OP` (5):** Respuesta del servidor que contiene en su *payload* los DNI ganadores correspondientes a esa agencia.
+1. **Ampliación y estandarización del Protocolo:**
+   Se unificó el header de los mensajes enviados por el cliente al servidor a **4 bytes fijos** (`[1 byte: OpCode] + [1 byte: Agency_ID] + [2 bytes: Cantidad / Unused]`) para lograr un esquema predecible y simplificar enormemente la lectura en el servidor. Al leer siempre exactamente 4 bytes iniciales, el servidor puede decodificarlos en un solo paso (con `struct.unpack("!BBH")`) sin importar qué tipo de operación sea.
+   
+   Aunque en algunas operaciones (`DONE_OP`, `REQUEST_WINNERS_OP`) los últimos 2 bytes no se utilizan y viajan en cero (padding), este pequeño "desperdicio" de bytes compensa con creces al evitar tener lógica condicional compleja de lectura de headers de tamaño dinámico.
+   
+   - **`SEND_BATCH_OP` (3):** `[1 byte (3)] + [1 byte (agency_id)] + [2 bytes (cantidad de apuestas N)]` y luego el *payload* con las apuestas.
+   - **`DONE_OP` (4):** Mensaje que envía la agencia al terminar de leer su archivo. No tiene *payload*. Header: `[1 byte (4)] + [1 byte (agency_id)] + [2 bytes (0, padding)]`.
+   - **`REQUEST_WINNERS_OP` (6):** Mensaje que envía la agencia para bloquearse a la espera de sus resultados. No tiene *payload*. Header: `[1 byte (6)] + [1 byte (agency_id)] + [2 bytes (0, padding)]`.
+   - **`WINNERS_OP` (5):** Respuesta del servidor que contiene la lista de ganadores. Su estructura difiere ya que la envía el server:
+     `[1 byte (5)] + [2 bytes (Cantidad de ganadores W)]` y luego iterativamente por cada ganador:
+     `[2 bytes (Largo del DNI L)] + [L bytes de string DNI]`.
 
 2. **Sincronización en el Servidor:**
    El servidor divide su ejecución en fases. Primero, recibe *batchs* y registra qué agencias van enviando el aviso de terminación (`DONE_OP`). Solo cuando recibe el aviso de *todas* las agencias esperadas (cantidad configurada mediante variable de entorno del compose), rompe el bucle de recepción y ejecuta de forma segura el sorteo de Lotería Nacional, para luego responder a las conexiones en espera (`REQUEST_WINNERS_OP`).
 
 3. **Ciclo de vida del Cliente:**
-   Tras enviar todos sus lotes de apuestas y agotar el archivo de origen, el cliente abre una conexión para notificar al servidor (`DONE_OP`). Por último, solicita los ganadores (`REQUEST_WINNERS_OP`) usando una conexión que se quedará bloqueada (en espera) hasta que el servidor haya comprobado que todas las agencias terminaron y esté listo para devolver los resultados.
-
+   Tras enviar todos sus lotes de apuestas y agotar el archivo de origen iterando sobre una misma conexión persistente, el cliente reutiliza dicha conexión para notificar al servidor que ha terminado de enviar sus apuestas (`DONE_OP`). Tras recibir la confirmación de este aviso, el cliente cierra la conexión original. Por último, solicita los ganadores (`REQUEST_WINNERS_OP`) abriendo una **segunda y nueva conexión** que se quedará bloqueada (en espera) hasta que el servidor haya comprobado que todas las agencias terminaron y esté listo para devolver los resultados.
+   

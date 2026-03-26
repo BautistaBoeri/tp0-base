@@ -21,20 +21,18 @@ class Server:
         self._task_queue = queue.Queue()
         self._workers = []
 
-        # Sincronización para el sorteo liderado por hilo supervisor
+        # Sincronización mediante Variable de Condición
         self._agencias_recibidas = 0
-        self._agencias_recibidas_lock = threading.Lock()
-
-        self._sorteo_terminado_event = threading.Event()
-        self._todos_listos_event = threading.Event()
+        self._sorteo_is_done = False
+        self._cond = threading.Condition()
 
     def stop(self):
         logging.info("action: stop_server | result: in_progress")
         self._is_running = False
 
-        # Desbloquea hilos esperando en los eventos de sincronización
-        self._todos_listos_event.set()
-        self._sorteo_terminado_event.set()
+        # Despierta a cualquier hilo que esté esperando en la condición
+        with self._cond:
+            self._cond.notify_all()
 
         for _ in range(self._pool_size):
             self._task_queue.put(None)
@@ -73,12 +71,16 @@ class Server:
 
     def __supervisor_sorteo(self):
         """Espera que lleguen todos los mensajes de Done y luego realiza sorteo."""
-        self._todos_listos_event.wait()
+        with self._cond:
+            self._cond.wait_for(
+                lambda: self._agencias_recibidas == self._agencies or not self._is_running
+            )
 
-        if self._is_running:
-            logging.info("action: sorteo | result: success")
-            self._all_bets = list(utils.load_bets())
-            self._sorteo_terminado_event.set()
+            if self._is_running:
+                logging.info("action: sorteo | result: success")
+                self._all_bets = list(utils.load_bets())
+                self._sorteo_is_done = True
+                self._cond.notify_all()
 
     def __worker_loop(self):
         """
@@ -107,12 +109,10 @@ class Server:
                 if msg_type == "batch":
                     self.__handle_batch_message(client_sock, msg_agency_id, payload)
                 elif msg_type == "done":
-                    # Mantenemos la conexión abierta para enviar el ACK o esperar a pedir resultados si quisieran mandar algo por acá.
-                    # Asumiendo que el cliente manda DONE y el servidor debe responder un ACK.
                     self.__handle_done_message(client_sock)
                 elif msg_type == "request_winners":
                     self.__handle_request_winners_message(client_sock, msg_agency_id)
-                    break # El protocolo asume que request_winners es lo último y cierra
+                    break
 
         except protocol.BetFormatError as e:
             logging.error(
@@ -148,17 +148,17 @@ class Server:
 
     def __handle_done_message(self, client_sock):
         """Maneja el aviso de finalización de una agencia y actualiza los eventos de sincronización."""
-        with self._agencias_recibidas_lock:
+        with self._cond:
             self._agencias_recibidas += 1
             if self._agencias_recibidas == self._agencies:
-                self._todos_listos_event.set()
+                self._cond.notify_all()
 
         protocol.send_ack(client_sock)
 
     def __handle_request_winners_message(self, client_sock, agency_id):
         """Bloquea la ejecución hasta que finalice el sorteo, luego envía los ganadores a la agencia."""
-        # Espera a que el hilo supervisor termine el proceso del sorteo
-        self._sorteo_terminado_event.wait()
+        with self._cond:
+            self._cond.wait_for(lambda: self._sorteo_is_done or not self._is_running)
 
         if not self._is_running:
             return
@@ -171,7 +171,7 @@ class Server:
         protocol.send_winners(client_sock, winners)
 
     def __accept_new_connection(self):
-        """protocol.
+        """
         Accept new connections
 
         Function blocks until a connection to a client is made.

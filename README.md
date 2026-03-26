@@ -275,17 +275,23 @@ En esta etapa se implementó un mecanismo de **sincronización y consulta** para
 
 Para lograrlo, se incorporaron las siguientes modificaciones:
 
-1. **Ampliación del Protocolo:**
-   - **`SEND_BATCH_OP` (3):** Ahora incluye también el identificador de la agencia (`agency_id`) de 1 byte en el header.
-   - **`DONE_OP` (4):** Mensaje que envía la agencia al terminar de leer su archivo, indicando que no tiene más apuestas.
-   - **`REQUEST_WINNERS_OP` (6):** Mensaje que envía la agencia para quedarse a la espera de los resultados.
-   - **`WINNERS_OP` (5):** Respuesta del servidor que contiene en su *payload* los DNI ganadores correspondientes a esa agencia.
+1. **Ampliación y estandarización del Protocolo:**
+   Se unificó el header de los mensajes enviados por el cliente al servidor a **4 bytes fijos** (`[1 byte: OpCode] + [1 byte: Agency_ID] + [2 bytes: Cantidad / Unused]`) para lograr un esquema predecible y simplificar enormemente la lectura en el servidor. Al leer siempre exactamente 4 bytes iniciales, el servidor puede decodificarlos en un solo paso (con `struct.unpack("!BBH")`) sin importar qué tipo de operación sea.
+   
+   Aunque en algunas operaciones (`DONE_OP`, `REQUEST_WINNERS_OP`) los últimos 2 bytes no se utilizan y viajan en cero (padding), este pequeño "desperdicio" de bytes compensa con creces al evitar tener lógica condicional compleja de lectura de headers de tamaño dinámico.
+   
+   - **`SEND_BATCH_OP` (3):** `[1 byte (3)] + [1 byte (agency_id)] + [2 bytes (cantidad de apuestas N)]` y luego el *payload* con las apuestas.
+   - **`DONE_OP` (4):** Mensaje que envía la agencia al terminar de leer su archivo. No tiene *payload*. Header: `[1 byte (4)] + [1 byte (agency_id)] + [2 bytes (0, padding)]`.
+   - **`REQUEST_WINNERS_OP` (6):** Mensaje que envía la agencia para bloquearse a la espera de sus resultados. No tiene *payload*. Header: `[1 byte (6)] + [1 byte (agency_id)] + [2 bytes (0, padding)]`.
+   - **`WINNERS_OP` (5):** Respuesta del servidor que contiene la lista de ganadores. Su estructura difiere ya que la envía el server:
+     `[1 byte (5)] + [2 bytes (Cantidad de ganadores W)]` y luego iterativamente por cada ganador:
+     `[2 bytes (Largo del DNI L)] + [L bytes de string DNI]`.
 
 2. **Sincronización en el Servidor:**
    El servidor divide su ejecución en fases. Primero, recibe *batchs* y registra qué agencias van enviando el aviso de terminación (`DONE_OP`). Solo cuando recibe el aviso de *todas* las agencias esperadas (cantidad configurada mediante variable de entorno del compose), rompe el bucle de recepción y ejecuta de forma segura el sorteo de Lotería Nacional, para luego responder a las conexiones en espera (`REQUEST_WINNERS_OP`).
 
 3. **Ciclo de vida del Cliente:**
-   Tras enviar todos sus lotes de apuestas y agotar el archivo de origen, el cliente abre una conexión para notificar al servidor (`DONE_OP`). Por último, solicita los ganadores (`REQUEST_WINNERS_OP`) usando una conexión que se quedará bloqueada (en espera) hasta que el servidor haya comprobado que todas las agencias terminaron y esté listo para devolver los resultados.
+   Tras enviar todos sus lotes de apuestas y agotar el archivo de origen iterando sobre una misma conexión persistente, el cliente reutiliza dicha conexión para notificar al servidor que ha terminado de enviar sus apuestas (`DONE_OP`). Tras recibir la confirmación de este aviso, el cliente cierra la conexión original. Por último, solicita los ganadores (`REQUEST_WINNERS_OP`) abriendo una **segunda y nueva conexión** que se quedará bloqueada (en espera) hasta que el servidor haya comprobado que todas las agencias terminaron y esté listo para devolver los resultados.
 
 # Resolucion EJ8
 
@@ -294,16 +300,15 @@ En esta última etapa, se modificó el servidor para que deje de ser secuencial 
 Las piezas principales de la arquitectura concurrente son:
 
 1. **Thread Pool (Worker Threads y Task Queue):**
-   El hilo principal (*main thread*) ahora solo se encarga de aceptar nuevas conexiones entrantes (`accept()`) para delegarlas lo más rápido posible. Estas conexiones (sockets) son colocadas en un hilo de tareas, una `queue.Queue()`, de modo seguro. Un grupo predefinido de *workers* (*Thread Pool*) retira constantemente las conexiones de la cola y las atiende de principio a fin de forma concurrente.
-   Esto previene el abuso de generar hilos ad-hoc infinitos, limitando cuántas atenciones simultáneas puede realizar el servidor en el host.
+   El hilo principal (*main thread*) ahora solo se encarga de aceptar nuevas conexiones entrantes (`accept()`) para delegarlas lo más rápido posible. Estas conexiones (sockets) son colocadas en un gestor de tareas, una `queue.Queue()`, la cual es *thread-safe* por naturaleza. Un grupo predefinido de *workers* (*Thread Pool*) de tamaño estático (basado en la cantidad de agencias) retira constantemente las conexiones de la cola y las atiende de principio a fin de forma concurrente. Esto evita la ineficiencia de crear y destruir hilos constantemente por cada conexión.
 
-2. **Secciones Críticas - Mútua Exclusión (Locks):**
-   A diferencia del modelo secuencial previo, ahora dos o cinco agencias podrían enviar apuestas e integrarlas en disco paralelamente. Se usaron distintos **`threading.Lock()`**:
-   - `_store_lock`: Previene condiciones de carrera o *dirty writes* al momento de almacenar persistentemente el batch de apuestas, garantizando acceso mutuamente excluyente al usar la función `store_bets`.
-   - `_agencias_recibidas_lock`: Protege la estructura responsable de contabilizar y marcar en memoria qué agencias ya enviaron su mensaje de finalización (`DONE_OP`).
+2. **Secciones Críticas - Mutua Exclusión (Locks):**
+   A diferencia del modelo secuencial previo, ahora múltiples agencias podrían enviar apuestas e intentar escribirlas en disco paralelamente. Se usó un lock **`threading.Lock()`**:
+   - `_store_lock`: Previene condiciones de carrera al momento de almacenar persistentemente el batch de apuestas, garantizando acceso mutuamente excluyente al invocar la función `store_bets`.
 
-3. **Sincronización Avanzada de Fases (Events y Sorteo):**
-   Para sustituir las esperas activas (*busy waiting*), que perjudicarían sustancialmente el uso de la CPU en Python, se empleó un hilo supervisor y distintos flags como **`threading.Event()`**:
-   - `_todos_listos_event`: Un evento que los distintos workers pueden activar al notificar el último `DONE`. Un thread denominado `__supervisor_sorteo`  se bloquea en este *Event* (con `.wait()`) hasta percibir que todas las agencias terminaron, procediendo a efectuar luego el sorteo.
-   - `_sorteo_terminado_event`: Aquellos workers que reciben la consulta de resultados a través del opcode `REQUEST_WINNERS_OP` se duermen a la espera de que el *Thread Supervisor* notifique fehacientemente este evento luego de terminar el sorteo, despertándolos masiva y concurrentemente para resolver su respuesta a la red.
+3. **Sincronización de Fases (Variables de Condición):**
+   Para la coordinación entre el hilo supervisor del sorteo y los *workers* que atienden a los clientes, se emplea de una única Variable de Condición (**`threading.Condition()`**):
+   - **Hilo Supervisor (`__supervisor_sorteo`)**: Se bloquea eficientemente usando `_cond.wait_for()` hasta que la variable `_agencias_recibidas` alcance el total esperado. A medida que los *workers* atienden los mensajes de `DONE_OP`, incrementan el contador bajo el candado de la condición y envían un `notify_all()`. Quien activa el paso a la siguiente fase es quien procesó la última agencia.
+   - **Consulta de Resultados (`REQUEST_WINNERS_OP`)**: Tras enviar todas las apuestas y avisar que terminaron, los *workers* de los clientes solicitan los resultados y quedan dormidos en la misma condición (`_cond.wait_for()`), esperando que el supervisor marque `_sorteo_is_done = True`. Cuando el sorteo finaliza, el supervisor invoca `notify_all()`, despertando masiva y concurrentemente a los *workers* para que devuelvan la respuesta a sus respectivos clientes por la red. 
+   - Adicionalmente, esta condición es clave durante el *Graceful Shutdown* (`stop()`), ya que notifica a cualquier hilo expectante para destrabarlo y finalizar limpiamente.
 

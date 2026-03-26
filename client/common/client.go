@@ -75,11 +75,16 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 	csvReader := csv.NewReader(file)
 	betReader := NewBetReader(csvReader)
 
-	// Loop: crear una conexión nueva por cada batch, mandarlo y cerrarla
+	err = c.createClientSocket()
+	if err != nil {
+		return
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+			c.conn.Close()
 			return
 		default:
 		}
@@ -89,11 +94,6 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 		// Si no hay más apuestas para leer, terminamos el loop
 		if len(batch) == 0 && errRead == io.EOF {
 			break
-		}
-
-		err = c.createClientSocket()
-		if err != nil {
-			return
 		}
 
 		// Convertir el modelo de negocio Bet a DTO para la capa de red
@@ -117,23 +117,18 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 			return
 		}
 
-		c.conn.Close()
-
 		log.Infof("action: batch_enviado | result: success | cantidad_apuestas: %d", len(batch))
 
 		select {
 		case <-ctx.Done():
 			log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+			c.conn.Close()
 			return
 		case <-time.After(c.config.LoopPeriod):
 		}
 	}
 
-	// Notificar al servidor que terminamos
-	err = c.createClientSocket()
-	if err != nil {
-		return
-	}
+	// Notificar al servidor que terminamos (por la misma conexión)
 	err = SendDone(c.conn, uint8(agencyID))
 	if err != nil {
 		log.Errorf("action: send_done | result: fail | client_id: %v | error: %v", c.config.ID, err)
@@ -146,9 +141,10 @@ func (c *Client) StartClientLoop(ctx context.Context) {
 		c.conn.Close()
 		return
 	}
+
 	c.conn.Close()
 
-	// Pedir ganadores
+	// Pedir ganadores (en una segunda conexión)
 	err = c.createClientSocket()
 	if err != nil {
 		return

@@ -82,7 +82,8 @@ class Server:
 
     def __worker_loop(self):
         """
-        Toma una conexión de la queue, la procesa y la cierra.
+        Toma una conexión de la queue, la procesa por completo (incluso si envía 
+        múltiples mensajes) y la cierra cuando el cliente se desconecta o termina.
         Se ejecuta indefinidamente hasta recibir un centinela None.
         """
         while self._is_running:
@@ -95,16 +96,23 @@ class Server:
             self.__handle_client_connection(client_sock)
 
     def __handle_client_connection(self, client_sock):
-        """Procesa una única solicitud del cliente y la delega a manejadores específicos."""
+        """Procesa todas las solicitudes del cliente en una misma conexión."""
         try:
-            msg_type, msg_agency_id, payload = protocol.recv_message(client_sock)
-            
-            if msg_type == "batch":
-                self.__handle_batch_message(client_sock, msg_agency_id, payload)
-            elif msg_type == "done":
-                self.__handle_done_message(client_sock)
-            elif msg_type == "request_winners":
-                self.__handle_request_winners_message(client_sock, msg_agency_id)
+            while True:
+                try:
+                    msg_type, msg_agency_id, payload = protocol.recv_message(client_sock)
+                except ConnectionError:
+                    break
+
+                if msg_type == "batch":
+                    self.__handle_batch_message(client_sock, msg_agency_id, payload)
+                elif msg_type == "done":
+                    # Mantenemos la conexión abierta para enviar el ACK o esperar a pedir resultados si quisieran mandar algo por acá.
+                    # Asumiendo que el cliente manda DONE y el servidor debe responder un ACK.
+                    self.__handle_done_message(client_sock)
+                elif msg_type == "request_winners":
+                    self.__handle_request_winners_message(client_sock, msg_agency_id)
+                    break # El protocolo asume que request_winners es lo último y cierra
 
         except protocol.BetFormatError as e:
             logging.error(
